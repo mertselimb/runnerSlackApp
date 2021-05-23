@@ -3,11 +3,11 @@ var router = express.Router();
 const axios = require("axios"),
   sqlite3 = require("sqlite3").verbose();
 
-const db = new sqlite3.Database("runners.db", (err) => {
+const db = new sqlite3.Database("activity.db", (err) => {
   if (err) {
     return console.error(err.message);
   } else {
-    console.log("Connected to the runners database.");
+    console.log("Connected to the activity database.");
   }
 });
 
@@ -25,7 +25,7 @@ router.get("/hello", async (req, res, next) => {
 });
 
 router.get("/rows", async (req, res, next) => {
-  db.all(`SELECT * FROM runners`, (error, rows) => {
+  db.all(`SELECT * FROM activities`, (error, rows) => {
     if (error) {
       res.json(error);
     } else {
@@ -37,45 +37,22 @@ router.get("/rows", async (req, res, next) => {
 
 router.post("/", async (req, res, next) => {
   if (/^ *-{0,1}\d+ *km *$/.test(req.body.text)) {
-    const amount = parseInt(req.body.text.match(/(-{0,1}\d+)/)[0]);
-    db.all(
-      `SELECT * FROM runners WHERE name="${req.body.user_name}"`,
-      (error, rows) => {
+    const amount = parseInt(req.body.text.match(/(-{0,1}\d+)/)[0]) * 1.25;
+    db.run(
+      `INSERT INTO activities(name,amount,type,time) VALUES(?,?,?,?)`,
+      [req.body.user_name, amount, "running", new Date().toISOString()],
+      (error) => {
         if (error) {
           console.error(error);
           res.send("Unexpected error.");
         } else {
-          if (rows.length > 0) {
-            const newAmount = parseInt(rows[0].AMOUNT) + amount;
-            const outcome =
-              amount > 0 ? "Congrats on your run" : "I just removed your run";
-            db.run(
-              `UPDATE runners SET amount = ${newAmount} WHERE name = "${req.body.user_name}"`,
-              (error) => {
-                if (error) {
-                  console.error(error);
-                  res.send("Unexpected error.");
-                } else {
-                  res.send(
-                    `${outcome} ${req.body.user_name}! Your total is ${newAmount} kilometers!`
-                  );
-                }
-              }
+          if (amount > 0) {
+            res.send(
+              `Congrats on your run ${req.body.user_name}! You have run ${amount} kilometers!`
             );
           } else {
-            db.run(
-              `INSERT INTO runners(name,amount) VALUES(?,?)`,
-              [req.body.user_name, amount],
-              (error) => {
-                if (error) {
-                  console.error(error);
-                  res.send("Unexpected error.");
-                } else {
-                  res.send(
-                    `Congrats on your first run ${req.body.user_name}! You have run ${amount} kilometers!`
-                  );
-                }
-              }
+            res.send(
+              `I deleted your run ${req.body.user_name}! Your deleted run is ${amount} kilometers!`
             );
           }
         }
@@ -86,18 +63,22 @@ router.post("/", async (req, res, next) => {
   }
 });
 
-const run = (sql, params = []) => {
-  return new Promise((resolve, reject) => {
-    this.db.run(sql, params, function (err) {
-      if (err) {
-        console.log("Error running sql " + sql);
-        console.log(err);
-        reject(err);
+router.post("/leaderboard", async (req, res, next) => {
+  db.all(
+    `Select name, sum(amount) FROM activities WHERE type="running" AND datetime(time) >=datetime('now', '-1 Hour') GROUP BY name ORDER BY sum(amount) DESC LIMIT 3`,
+    (error, rows) => {
+      if (error) {
+        console.error(error);
+        res.send("Unexpected error.");
       } else {
-        resolve({ id: this.lastID });
+        const leaderboard = rows.reduce((acc, row, index) => {
+          acc += `${index + 1}.${row.NAME}: ${row["sum(amount)"]} `;
+          return acc;
+        }, "Leaderboard: ");
+        res.send(leaderboard);
       }
-    });
-  });
-};
+    }
+  );
+});
 
 module.exports = router;
